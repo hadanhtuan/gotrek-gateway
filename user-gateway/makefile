@@ -28,4 +28,20 @@ gen-user:
 				--go-grpc_out=. --go-grpc_opt=paths=source_relative \
 				proto/user/*.proto
 
-gen-all: gen-sdk gen-user
+gen-property:
+	@protoc --go_out=. --go_opt=paths=source_relative \
+				--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+				proto/property/*.proto
+
+gen-search:
+	@protoc --go_out=. --go_opt=paths=source_relative \
+				--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+				proto/search/*.proto
+
+gen-payment:
+	@protoc --go_out=. --go_opt=paths=source_relative \
+				--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+				proto/payment/*.proto
+
+
+gen-all: gen-sdk gen-user gen-property gen-search gen-payment

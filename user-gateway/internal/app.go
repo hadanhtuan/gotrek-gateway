@@ -3,34 +3,82 @@ package internal
 import (
 	"fmt"
 	"net/http"
+	apiPayment "user-gateway/api/payment"
+	apiProperty "user-gateway/api/property"
+	apiSearch "user-gateway/api/search"
+	apiUser "user-gateway/api/user"
+
+	protoPayment "user-gateway/proto/payment"
+	protoProperty "user-gateway/proto/property"
+	protoSearch "user-gateway/proto/search"
+	protoUser "user-gateway/proto/user"
+
 	"user-gateway/internal/middleware"
-	"github.com/hadanhtuan/go-sdk/common"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	sdk "github.com/hadanhtuan/go-sdk"
-	apiUser "user-gateway/api/user"
-	userService "user-gateway/proto/user"
+	"github.com/hadanhtuan/go-sdk"
 	grpcClient "github.com/hadanhtuan/go-sdk/client"
+	"github.com/hadanhtuan/go-sdk/common"
 )
 
 func InitGRPC(app *sdk.App) error {
 	app.Handler = map[string]interface{}{}
 
-	userServiceHost := fmt.Sprintf(
+	userServiceUrl := fmt.Sprintf(
 		"%s:%s",
 		app.Config.GRPC.UserServiceHost,
 		app.Config.GRPC.UserServicePort,
 	)
-	fmt.Println(userServiceHost)
-	userConn, err := grpcClient.NewGRPCClientConn(userServiceHost)
+	bookingServiceUrl := fmt.Sprintf(
+		"%s:%s",
+		app.Config.GRPC.PropertyServiceHost,
+		app.Config.GRPC.PropertyServicePort,
+	)
+	searchServiceUrl := fmt.Sprintf(
+		"%s:%s",
+		app.Config.GRPC.SearchServiceHost,
+		app.Config.GRPC.SearchServicePort,
+	)
+	paymentServiceHost := fmt.Sprintf(
+		"%s:%s",
+		app.Config.GRPC.PaymentServiceHost,
+		app.Config.GRPC.PaymentServicePort,
+	)
+
+	userConn, err := grpcClient.NewGRPCClientConn(userServiceUrl)
 	if err != nil {
-		return fmt.Errorf("Failed to connect to %s: %v", userServiceHost, err)
+		return fmt.Errorf("failed to connect to %s: %v", userServiceUrl, err)
 	}
+	propertyConn, err := grpcClient.NewGRPCClientConn(bookingServiceUrl)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %v", bookingServiceUrl, err)
+	}
+	searchConn, err := grpcClient.NewGRPCClientConn(searchServiceUrl)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %v", searchServiceUrl, err)
+	}
+	paymentConn, err := grpcClient.NewGRPCClientConn(paymentServiceHost)
+	if err != nil {
+		return fmt.Errorf("failed to connect to %s: %v", paymentServiceHost, err)
+	}
+
 	// TODO: Bug if defer in here: defer userConn.Close()
+	// USER
+	userServiceClient := protoUser.NewUserServiceClient(userConn)
+	app.Handler[app.Config.GRPC.UserServicePort] = apiUser.NewUserController(userServiceClient)
 
-	userServiceClient := userService.NewUserServiceClient(userConn)
-	app.Handler[app.Config.GRPC.UserServicePort] = apiUser.NewController(userServiceClient)
+	//BOOKING
+	propertyServiceClient := protoProperty.NewPropertyServiceClient(propertyConn)
+	app.Handler[app.Config.GRPC.PropertyServicePort] = apiProperty.NewPropertyController(propertyServiceClient)
 
+	//SEARCH
+	searchServiceClient := protoSearch.NewSearchServiceClient(searchConn)
+	app.Handler[app.Config.GRPC.SearchServicePort] = apiSearch.NewSearchController(searchServiceClient)
+
+	//PAYMENT
+	paymentServiceClient := protoPayment.NewPaymentServiceClient(paymentConn)
+	app.Handler[app.Config.GRPC.PaymentServicePort] = apiPayment.NewPaymentController(paymentServiceClient)
 
 	fmt.Println("Server down")
 	return nil
@@ -50,7 +98,6 @@ func InitRoute(app *sdk.App) error {
 	router.Use(middleware.TimeoutMiddleware(config.HttpServer.RequestTimeoutPerSecond))
 
 	//TODO: missing config rate limit, will do it in future
-	fmt.Println(config.HttpServer.ApiPath)
 	basePath := router.Group(config.HttpServer.ApiPath)
 
 	basePath.GET("/ping", func(ctx *gin.Context) {
@@ -58,8 +105,17 @@ func InitRoute(app *sdk.App) error {
 	})
 
 	//Init Route
+	// USER
 	apiUser.InitRoute(basePath, app)
-	fmt.Println(config.HttpServer.SwaggerPath)
+
+	//BOOKING
+	apiProperty.InitRoute(basePath, app)
+
+	//SEARCH
+	apiSearch.InitRoute(basePath, app)
+
+	//PAYMENT
+	apiPayment.InitRoute(basePath, app)
 
 	router.ForwardedByClientIP = true
 	router.SetTrustedProxies([]string{config.HttpServer.TrustedDomain})
